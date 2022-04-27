@@ -9,25 +9,32 @@ from gi.repository import GLib, Gst, GstWebRTC, GstSdp
 
 from gst_helpers import *
 
-VENCODER="queue ! x264enc bitrate=1500 speed-preset=ultrafast tune=zerolatency key-int-max=15 ! video/x-h264,profile=constrained-baseline ! queue ! h264parse ! "
+#VENCODER="queue max-size-buffers=1 ! x264enc bitrate=1500 speed-preset=ultrafast tune=zerolatency key-int-max=15 ! video/x-h264,profile=constrained-baseline ! queue max-size-time=100000000 ! h264parse ! rtph264pay config-interval=-1 ! application/x-rtp,media=video,encoding-name=H264,"
 # TODO: vp8 would be better in terms of compatibility, but the quality is horrific?
-#VENCODER="queue max-size-buffers=1 ! vp8enc threads=2 deadline=2000 target-bitrate=600000 ! queue max-size-time=100000000 ! rtpvp8pay ! application/x-rtp,media=video,encoding-name=VP8,"
-# TODO: any other sensible audiocodec that can also be put into MP4 containers?
-AENCODER="queue ! opusenc ! queue ! opusparse ! "
+VENCODER="queue max-size-buffers=1 ! vp8enc threads=2 deadline=2000 target-bitrate=600000 ! queue max-size-time=100000000 ! rtpvp8pay ! application/x-rtp,media=video,encoding-name=VP8,"
+AENCODER="queue ! opusenc ! rtpopuspay ! queue max-size-time=100000000 ! application/x-rtp,media=audio,encoding-name=OPUS,"
 
-RTPVIDEO="rtph264pay config-interval=1 ! application/x-rtp,media=video,encoding-name=H264,"
-RTPAUDIO="rtpopuspay ! application/x-rtp,media=audio,encoding-name=OPUS,"
-FILESINK="mp4mux name=mux fragment-duration=1000 ! filesink sync=true location="
+# TODO make stun server configurable? maybe print firewall info?
+bindesc="webrtcbin name=webrtcbin stun-server=stun://stun.l.google.com:19302 "+\
+  "videoconvert name=front   ! "+VENCODER+"payload=96 ! webrtcbin. "+\
+  "audioconvert name=audio   ! "+AENCODER+"payload=97 ! webrtcbin. "+\
+  "videoconvert name=surface ! "+VENCODER+"payload=98 ! webrtcbin. "
 
-bindesc="webrtcbin name=webrtcbin stun-server=%s "+\
-  "videoconvert name=front   ! "+VENCODER+RTPVIDEO+"payload=96 ! webrtcbin. "+\
-  "audioconvert name=audio   ! "+AENCODER+RTPAUDIO+"payload=97 ! webrtcbin. "+\
-  "videoconvert name=surface ! "+VENCODER+RTPVIDEO+"payload=98 ! webrtcbin. "
+response_type = {
+    "offer":  GstWebRTC.WebRTCSDPType.OFFER,
+    "answer": GstWebRTC.WebRTCSDPType.ANSWER
+}
 
-filebin=FILESINK+"%s "+\
-  "videoconvert name=front   ! "+VENCODER+" mux. "+\
-  "audioconvert name=audio   ! "+AENCODER+" mux. "+\
-  "videoconvert name=surface ! "+VENCODER+" mux. "
+#VENCODER="queue max-size-buffers=1 ! x264enc bitrate=1500 speed-preset=ultrafast tune=zerolatency key-int-max=15 ! video/x-h264,profile=constrained-baseline ! queue max-size-time=100000000 ! h264parse ! rtph264pay config-interval=-1 ! application/x-rtp,media=video,encoding-name=H264,"
+# TODO: vp8 would be better in terms of compatibility, but the quality is horrific?
+VENCODER="queue max-size-buffers=1 ! vp8enc threads=2 deadline=2000 target-bitrate=600000 ! queue max-size-time=100000000 ! rtpvp8pay ! application/x-rtp,media=video,encoding-name=VP8,"
+AENCODER="queue ! opusenc ! rtpopuspay ! queue max-size-time=100000000 ! application/x-rtp,media=audio,encoding-name=OPUS,"
+
+# TODO make stun server configurable? maybe print firewall info?
+bindesc="webrtcbin name=webrtcbin stun-server=stun://stun.l.google.com:19302 "+\
+  "videoconvert name=front   ! "+VENCODER+"payload=96 ! webrtcbin. "+\
+  "audioconvert name=audio   ! "+AENCODER+"payload=97 ! webrtcbin. "+\
+  "videoconvert name=surface ! "+VENCODER+"payload=98 ! webrtcbin. "
 
 response_type = {
     "offer":  GstWebRTC.WebRTCSDPType.OFFER,
@@ -73,10 +80,10 @@ def get_mids_from_sdp(sdptext):
 # base class: bin with 3 sink ghostpads
 class StreamSink:
 
-    def __init__(self, name, param, bin_desc=filebin):
+    def __init__(self, name, param, bin_desc):
 
         self.name = name
-        bin_desc = bin_desc % param
+        bin_desc = bin_desc
 
         logging.info("Setting up stream handler for "+name)
         logging.trace("Bin contents: "+bin_desc)
